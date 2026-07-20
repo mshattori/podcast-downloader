@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_DOWNLOADS = 5
 CHUNK_SIZE = 8192
+MAX_COMMENT_CHARS = 500
 
 
 class DownloadError(Exception):
@@ -103,6 +104,7 @@ class DownloadManager:
         # Skip if the file already exists (BR-05-x)
         if dest_path.exists():
             logger.info("File already exists, skipping: %s", dest_path)
+            _tag_downloaded_file(dest_path, episode)
             episode.status = DownloadStatus.DOWNLOADED
             episode.local_path = str(dest_path)
             task.on_complete(episode, str(dest_path))
@@ -134,6 +136,7 @@ class DownloadManager:
                         task.on_progress(episode, percent)
 
             os.replace(tmp_path, dest_path)
+            _tag_downloaded_file(dest_path, episode)
             episode.status = DownloadStatus.DOWNLOADED
             episode.local_path = str(dest_path)
             logger.info("Download complete: %s", dest_path)
@@ -181,3 +184,54 @@ def _build_dest_path(episode: Episode, dest_dir: str) -> Path:
         sanitized = re.sub(r'[/\\:*?"<>|]', "_", f"{date_str}_{truncated_title}{suffix}")
 
     return Path(dest_dir) / sanitized
+
+
+def _tag_downloaded_file(path: Path, episode: Episode) -> None:
+    """Write audio metadata for supported downloaded files."""
+    if path.suffix.lower() != ".mp3":
+        return
+
+    try:
+        _write_mp3_metadata(path, episode)
+    except Exception as e:
+        logger.warning("Failed to write MP3 metadata for %s: %s", path, e)
+
+
+def _write_mp3_metadata(path: Path, episode: Episode) -> None:
+    from mutagen.id3 import COMM, TALB, TCON, TDRC, TIT2, TPE1, TPE2, ID3, ID3NoHeaderError
+
+    try:
+        tags = ID3(path)
+    except ID3NoHeaderError:
+        tags = ID3()
+
+    tags.setall("TIT2", [TIT2(encoding=3, text=episode.title)])
+
+    album = episode.podcast_title.strip()
+    if album:
+        tags.setall("TALB", [TALB(encoding=3, text=album)])
+        tags.setall("TPE1", [TPE1(encoding=3, text=album)])
+        tags.setall("TPE2", [TPE2(encoding=3, text=album)])
+
+    if episode.published:
+        tags.setall("TDRC", [TDRC(encoding=3, text=episode.published.date().isoformat())])
+
+    tags.setall("TCON", [TCON(encoding=3, text="Podcast")])
+
+    comment = _metadata_comment(episode.description)
+    if comment:
+        tags.delall("COMM")
+        tags.add(COMM(encoding=3, lang="eng", desc="", text=comment))
+
+    tags.save(path, v2_version=3)
+
+
+def _plain_text(value: str) -> str:
+    return re.sub(r"<[^>]+>", "", value)
+
+
+def _metadata_comment(value: str) -> str:
+    comment = re.sub(r"\s+", " ", _plain_text(value)).strip()
+    if len(comment) <= MAX_COMMENT_CHARS:
+        return comment
+    return comment[: MAX_COMMENT_CHARS - 3].rstrip() + "..."

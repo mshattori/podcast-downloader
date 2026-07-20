@@ -43,6 +43,8 @@ class _FetchWorker(QThread):
             episodes = rss_parser.fetch_and_parse(self._feed.url)
             for ep in episodes:
                 ep.feed_id = self._feed.id
+                if not ep.podcast_title:
+                    ep.podcast_title = self._feed.label
             self.finished.emit(episodes, self._feed.id)
         except Exception as e:
             logger.error("RSS fetch failed for %s: %s", self._feed.url, e)
@@ -158,6 +160,10 @@ class FeedPanel(QWidget):
         """Start background refresh for every registered feed."""
         for feed in self._settings.feeds:
             self._start_fetch(feed)
+
+    def current_feed(self) -> Feed | None:
+        """Return the currently selected feed, if any."""
+        return self._current_feed
 
     # ------------------------------------------------------------------
     # Slots

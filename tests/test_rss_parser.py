@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from podcast_downloader.core.models import DownloadStatus
@@ -70,6 +72,7 @@ class TestParseFeedFromString:
         assert ep.duration_seconds == 5400
         assert ep.duration_display == "1時間30分00秒"
         assert ep.description == "テストの概要"
+        assert ep.podcast_title == "テストポッドキャスト"
         assert ep.published is not None
 
     def test_excludes_episodes_without_audio_url(self) -> None:
@@ -149,12 +152,34 @@ class TestMergeEpisodes:
     def test_existing_status_preserved(self) -> None:
         cached = [self._ep("ep-1", status=DownloadStatus.DOWNLOADED)]
         fetched = [self._ep("ep-1", title="新しいタイトル")]
+        fetched[0].podcast_title = "新しい番組名"
         merged = merge_episodes(cached, fetched)
         assert merged[0].status == DownloadStatus.DOWNLOADED
         assert merged[0].title == "新しいタイトル"
+        assert merged[0].podcast_title == "新しい番組名"
 
     def test_all_fetched_episodes_in_result(self) -> None:
         cached = [self._ep("ep-1")]
         fetched = [self._ep("ep-1"), self._ep("ep-2")]
         merged = merge_episodes(cached, fetched)
         assert len(merged) == 2
+
+    def test_retains_downloaded_episode_removed_from_feed(self, tmp_path: Path) -> None:
+        downloaded_file = tmp_path / "ep-old.mp3"
+        downloaded_file.write_bytes(b"audio")
+        old = self._ep("ep-old", status=DownloadStatus.DOWNLOADED)
+        old.local_path = str(downloaded_file)
+
+        merged = merge_episodes([old], [self._ep("ep-new")])
+
+        assert [ep.guid for ep in merged] == ["ep-new", "ep-old"]
+        assert merged[1].status == DownloadStatus.DOWNLOADED
+        assert merged[1].local_path == str(downloaded_file)
+
+    def test_drops_cached_episode_removed_from_feed_when_file_missing(self) -> None:
+        old = self._ep("ep-old", status=DownloadStatus.DOWNLOADED)
+        old.local_path = "/path/to/missing.mp3"
+
+        merged = merge_episodes([old], [self._ep("ep-new")])
+
+        assert [ep.guid for ep in merged] == ["ep-new"]

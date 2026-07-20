@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 
 import feedparser
 import requests
 
 from .duration_parser import format_duration, parse_duration
-from .models import Episode
+from .models import DownloadStatus, Episode
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,10 @@ def parse_feed_from_string(content: str) -> list[Episode]:
 
     episodes: list[Episode] = []
     seen_guids: set[str] = set()
+    podcast_title = getattr(feed.feed, "title", "") or ""
 
     for entry in feed.entries:
-        episode = _entry_to_episode(entry)
+        episode = _entry_to_episode(entry, podcast_title=podcast_title)
         if episode is None:
             continue
         if episode.guid in seen_guids:
@@ -59,7 +61,10 @@ def parse_feed_from_string(content: str) -> list[Episode]:
     return episodes
 
 
-def _entry_to_episode(entry: feedparser.FeedParserDict) -> Episode | None:
+def _entry_to_episode(
+    entry: feedparser.FeedParserDict,
+    podcast_title: str = "",
+) -> Episode | None:
     # Exclude entries with no audio enclosure (BR-02-1)
     audio_url = _extract_audio_url(entry)
     if not audio_url:
@@ -82,6 +87,7 @@ def _entry_to_episode(entry: feedparser.FeedParserDict) -> Episode | None:
         duration_seconds=duration_seconds,
         duration_display=format_duration(duration_seconds),
         description=description,
+        podcast_title=podcast_title,
     )
 
 
@@ -132,8 +138,11 @@ def merge_episodes(
     Existing episodes retain their *status* and *local_path*; all other
     metadata fields are updated from the newly fetched data.
     New episodes (not in cache) are appended with NOT_DOWNLOADED status.
+    Cached downloaded episodes whose files still exist are retained even when
+    they are no longer present in the current feed window.
     """
     cached_by_guid = {ep.guid: ep for ep in cached}
+    fetched_guids = {ep.guid for ep in fetched}
     merged: list[Episode] = []
 
     for new_ep in fetched:
@@ -145,9 +154,23 @@ def merge_episodes(
             existing.duration_seconds = new_ep.duration_seconds
             existing.duration_display = new_ep.duration_display
             existing.description = new_ep.description
+            existing.podcast_title = new_ep.podcast_title
             existing.audio_url = new_ep.audio_url
             merged.append(existing)
         else:
             merged.append(new_ep)
 
+    for existing in cached:
+        if existing.guid in fetched_guids:
+            continue
+        if _has_downloaded_file(existing):
+            existing.status = DownloadStatus.DOWNLOADED
+            merged.append(existing)
+
     return merged
+
+
+def _has_downloaded_file(episode: Episode) -> bool:
+    if not episode.local_path:
+        return False
+    return Path(episode.local_path).is_file()

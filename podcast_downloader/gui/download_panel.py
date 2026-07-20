@@ -41,7 +41,7 @@ class DownloadPanel(QWidget):
     # ------------------------------------------------------------------
 
     def set_episode_status_callback(self, callback: callable) -> None:
-        """Register a callback(episode_id, DownloadStatus) called on status change."""
+        """Register a callback(episode_id, DownloadStatus, local_path) for status changes."""
         self._episode_update_callback = callback
 
     def start_downloads(
@@ -124,7 +124,7 @@ class DownloadPanel(QWidget):
         self._overall_bar.setValue(self._completed)
         self._overall_label.setText(f"{self._completed} / {self._total} 件")
         if self._episode_update_callback:
-            self._episode_update_callback(episode_id, DownloadStatus.DOWNLOADED)
+            self._episode_update_callback(episode_id, DownloadStatus.DOWNLOADED, path)
         if self._completed >= self._total:
             self.hide()
 
@@ -134,7 +134,7 @@ class DownloadPanel(QWidget):
         self._overall_bar.setValue(self._completed)
         self._overall_label.setText(f"{self._completed} / {self._total} 件")
         if self._episode_update_callback:
-            self._episode_update_callback(episode_id, DownloadStatus.ERROR)
+            self._episode_update_callback(episode_id, DownloadStatus.ERROR, None)
         QMessageBox.critical(self, "ダウンロードエラー", message)
         if self._completed >= self._total:
             self.hide()

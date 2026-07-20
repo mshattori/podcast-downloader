@@ -74,6 +74,7 @@ class TestEpisodeCache:
             audio_url="https://example.com/ep1.mp3",
             duration_seconds=3600,
             duration_display="1時間00分00秒",
+            podcast_title="テストポッドキャスト",
         )
 
     def test_returns_empty_when_no_cache(self, tmp_settings: SettingsManager) -> None:
@@ -88,7 +89,35 @@ class TestEpisodeCache:
         assert loaded[0].guid == episode.guid
         assert loaded[0].title == episode.title
         assert loaded[0].duration_seconds == 3600
+        assert loaded[0].podcast_title == episode.podcast_title
         assert loaded[0].status == DownloadStatus.NOT_DOWNLOADED
+
+    def test_loads_legacy_cache_without_podcast_title(self, tmp_settings: SettingsManager) -> None:
+        tmp_settings._ensure_dirs()
+        cache_path = tmp_settings._cache_dir / "feed-1.json"
+        cache_path.write_text(
+            json.dumps([
+                {
+                    "id": "episode-1",
+                    "feed_id": "feed-1",
+                    "guid": "ep-guid-1",
+                    "title": "テストエピソード",
+                    "audio_url": "https://example.com/ep1.mp3",
+                    "published": None,
+                    "duration_seconds": None,
+                    "duration_display": "不明",
+                    "description": "",
+                    "status": "not_downloaded",
+                    "local_path": None,
+                }
+            ], ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        loaded = tmp_settings.load_episode_cache("feed-1")
+
+        assert len(loaded) == 1
+        assert loaded[0].podcast_title == ""
 
     def test_returns_empty_on_corrupt_cache(self, tmp_settings: SettingsManager) -> None:
         tmp_settings._ensure_dirs()

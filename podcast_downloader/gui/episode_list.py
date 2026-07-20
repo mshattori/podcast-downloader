@@ -62,11 +62,22 @@ class EpisodeList(QWidget):
 
         self._sync_download_button()
 
-    def update_episode_status(self, episode_id: str, status: DownloadStatus) -> None:
+    def episodes(self) -> list[Episode]:
+        """Return the currently displayed episodes."""
+        return self._episodes
+
+    def update_episode_status(
+        self,
+        episode_id: str,
+        status: DownloadStatus,
+        local_path: str | None = None,
+    ) -> None:
         """Update the status column of the episode matching *episode_id*."""
         for row, ep in enumerate(self._episodes):
             if ep.id == episode_id:
                 ep.status = status
+                if local_path is not None:
+                    ep.local_path = local_path
                 item = self._table.item(row, _COL_STATUS)
                 if item:
                     item.setText(_STATUS_LABELS[status])

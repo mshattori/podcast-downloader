@@ -78,10 +78,26 @@ class MainWindow(QMainWindow):
         self._episode_list.set_episodes(episodes)
 
     def _on_download_requested(self, episodes: list) -> None:
+        current_feed = self._feed_panel.current_feed()
+        if current_feed:
+            for episode in episodes:
+                if not episode.podcast_title:
+                    episode.podcast_title = current_feed.label
         self._download_panel.start_downloads(episodes, self._settings.download_dir)
 
-    def _on_episode_status_changed(self, episode_id: str, status: DownloadStatus) -> None:
-        self._episode_list.update_episode_status(episode_id, status)
+    def _on_episode_status_changed(
+        self,
+        episode_id: str,
+        status: DownloadStatus,
+        local_path: str | None = None,
+    ) -> None:
+        self._episode_list.update_episode_status(episode_id, status, local_path)
+        current_feed = self._feed_panel.current_feed()
+        if current_feed:
+            self._settings_manager.save_episode_cache(
+                current_feed.id,
+                self._episode_list.episodes(),
+            )
 
     def _open_settings(self) -> None:
         dlg = SettingsDialog(self._settings, self._settings_manager, parent=self)

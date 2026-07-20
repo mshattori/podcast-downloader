@@ -53,6 +53,7 @@ class Episode:
     duration_seconds: int | None = None
     duration_display: str = "不明"
     description: str = ""
+    podcast_title: str = ""
     status: DownloadStatus = DownloadStatus.NOT_DOWNLOADED
     local_path: str | None = None
 
@@ -67,6 +68,7 @@ class Episode:
             "duration_seconds": self.duration_seconds,
             "duration_display": self.duration_display,
             "description": self.description,
+            "podcast_title": self.podcast_title,
             "status": self.status.value,
             "local_path": self.local_path,
         }
@@ -86,6 +88,7 @@ class Episode:
             duration_seconds=data.get("duration_seconds"),
             duration_display=data.get("duration_display", "不明"),
             description=data.get("description", ""),
+            podcast_title=data.get("podcast_title", ""),
             status=DownloadStatus(data.get("status", DownloadStatus.NOT_DOWNLOADED.value)),
             local_path=data.get("local_path"),
         )

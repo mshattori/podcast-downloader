@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from podcast_downloader.core.downloader import DownloadManager, _build_dest_path
+from podcast_downloader.core.downloader import (
+    DownloadManager,
+    _build_dest_path,
+    _metadata_comment,
+    _plain_text,
+    _write_mp3_metadata,
+)
 from podcast_downloader.core.models import DownloadStatus, Episode
 
 
@@ -79,7 +85,10 @@ class TestDownloadManager:
             results["path"] = path
             completed.set()
 
-        with patch("podcast_downloader.core.downloader.requests.get") as mock_get:
+        with (
+            patch("podcast_downloader.core.downloader.requests.get") as mock_get,
+            patch("podcast_downloader.core.downloader._tag_downloaded_file") as mock_tag,
+        ):
             mock_get.return_value = self._make_response_mock()
             mgr = DownloadManager(max_workers=1)
             mgr.enqueue(ep, str(tmp_path), lambda e, p: None, on_complete, lambda e, m: None)
@@ -87,6 +96,7 @@ class TestDownloadManager:
 
         assert results["episode"].status == DownloadStatus.DOWNLOADED
         assert Path(results["path"]).exists()
+        mock_tag.assert_called_once_with(Path(results["path"]), ep)
 
     def test_skip_if_file_exists(self, tmp_path: Path) -> None:
         ep = _make_episode()
@@ -100,13 +110,17 @@ class TestDownloadManager:
             results["skipped"] = True
             completed.set()
 
-        with patch("podcast_downloader.core.downloader.requests.get") as mock_get:
+        with (
+            patch("podcast_downloader.core.downloader.requests.get") as mock_get,
+            patch("podcast_downloader.core.downloader._tag_downloaded_file") as mock_tag,
+        ):
             mgr = DownloadManager(max_workers=1)
             mgr.enqueue(ep, str(tmp_path), lambda e, p: None, on_complete, lambda e, m: None)
             completed.wait(timeout=5)
 
         # HTTPリクエストは発生しない
         mock_get.assert_not_called()
+        mock_tag.assert_called_once_with(dest, ep)
         assert results.get("skipped")
         assert ep.status == DownloadStatus.DOWNLOADED
 
@@ -174,3 +188,37 @@ class TestDownloadManager:
 
         assert len(progress_values) > 0
         assert progress_values[-1] == pytest.approx(100.0)
+
+
+class TestMetadataHelpers:
+    def test_plain_text_strips_html_tags(self) -> None:
+        assert _plain_text("<p>説明<br>本文</p>") == "説明本文"
+
+    def test_metadata_comment_collapses_and_truncates_text(self) -> None:
+        comment = _metadata_comment(f"<p>{'長い説明 ' * 200}</p>")
+
+        assert len(comment) == 500
+        assert comment.endswith("...")
+        assert "\n" not in comment
+
+    def test_write_mp3_metadata(self, tmp_path: Path) -> None:
+        pytest.importorskip("mutagen")
+        from mutagen.id3 import ID3
+
+        path = tmp_path / "episode.mp3"
+        path.write_bytes(b"audio data")
+        episode = _make_episode(
+            title="エピソードタイトル",
+            podcast_title="番組タイトル",
+            description="<p>概要</p>",
+        )
+
+        _write_mp3_metadata(path, episode)
+
+        tags = ID3(path)
+        assert tags["TIT2"].text == ["エピソードタイトル"]
+        assert tags["TALB"].text == ["番組タイトル"]
+        assert tags["TPE1"].text == ["番組タイトル"]
+        assert tags["TPE2"].text == ["番組タイトル"]
+        assert tags["TCON"].text == ["Podcast"]
+        assert tags["COMM::eng"].text == ["概要"]
